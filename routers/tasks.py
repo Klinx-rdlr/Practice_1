@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, APIRouter
 from sqlalchemy.orm import Session
 from database import get_db
 from schemas import TaskCreate, TaskResponse
-from models import Task, User
+from models import Task, User, Project
 from auth import get_current_user
 
 router = APIRouter()
@@ -15,7 +15,16 @@ def health_check():
 
 @router.post("/tasks", response_model=TaskResponse)
 def create_task(task: TaskCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_task = Task(title=task.title, completed=task.completed, user_id=current_user.id)
+    
+    db_project = db.query(Project).filter(Project.id == task.project_id).first()
+
+    if db_project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    if db_project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
+    
+    new_task = Task(title=task.title, completed=task.completed, project_id=task.project_id)
 
     db.add(new_task)
     db.commit()
@@ -25,7 +34,12 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db), current_user: U
 
 @router.get("/tasks", response_model=list[TaskResponse])
 def list_tasks(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    tasks = db.query(Task).filter(Task.user_id == current_user.id).all()
+    tasks = (
+        db.query(Task)
+        .join(Project)
+        .filter(Project.user_id == current_user.id)
+        .all()
+    )
     return tasks
 
 
@@ -36,7 +50,7 @@ def get_task(id: int, db: Session = Depends(get_db), current_user: User = Depend
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if task.user_id != current_user.id:
+    if task.project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this task")
     
     return task
@@ -49,7 +63,7 @@ def delete_task(id: int, db: Session = Depends(get_db), current_user: User = Dep
     if db_task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if db_task.user_id != current_user.id:
+    if db_task.project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this task")
     
     db.delete(db_task)
@@ -64,7 +78,7 @@ def update_task(id: int, updated_task: TaskCreate, db: Session = Depends(get_db)
     if db_task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if db_task.user_id != current_user.id:
+    if db_task.project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this task")
     
     db_task.title = updated_task.title

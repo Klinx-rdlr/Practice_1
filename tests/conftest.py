@@ -51,3 +51,10 @@ def auth_client(client):
     # attach the token to all future requests from this client
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
+
+@pytest.fixture
+def project(auth_client):
+  
+    response = auth_client.post("/projects", json={"name":"test_project", "description": "for testing purposes"})
+
+    return response.json()["id"]
